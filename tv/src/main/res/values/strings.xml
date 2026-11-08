@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Oyun Altyazı TV</string>
+    <string name="service_label">Oyun Altyazı katmanı</string>
+    <string name="service_description">Tabletten gelen çeviri altyazılarını oyun görüntüsünün üstünde gösterir. Ekrandaki içeriği okumaz ve hiçbir yere göndermez.</string>
+</resources>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180">
+    <path android:fillColor="#1B2430" android:pathData="M0,0h320v180h-320z" />
+    <!-- Ekran -->
+    <path android:fillColor="#2E3B4E" android:pathData="M60,30h200v100h-200z" />
+    <!-- Altyazı şeritleri -->
+    <path android:fillColor="#FFFFFF" android:pathData="M90,100h140v10h-140z" />
+    <path android:fillColor="#9FB3C8" android:pathData="M110,116h100v6h-100z" />
+    <!-- Ayak -->
+    <path android:fillColor="#2E3B4E" android:pathData="M140,130h40v12h-40z" />
+    <path android:fillColor="#2E3B4E" android:pathData="M115,142h90v6h-90z" />
+</vector>

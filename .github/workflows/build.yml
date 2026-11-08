@@ -1,0 +1,46 @@
+# Her main push'unda testleri koşar, tablet ve TV APK'larını derler ve bir ön sürüm (pre-release) olarak yayınlar.
+name: build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+
+      - name: Birim testleri ve derleme
+        run: gradle --no-daemon testDebugUnitTest assembleDebug
+
+      - name: APK'ları adlandır
+        run: |
+          mkdir -p out
+          cp phone/build/outputs/apk/debug/phone-debug.apk out/OyunAltyazi-Tablet.apk
+          cp tv/build/outputs/apk/debug/tv-debug.apk out/OyunAltyazi-TV.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: out/*.apk
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Derleme ${{ github.run_number }}
+          prerelease: true
+          files: out/*.apk
