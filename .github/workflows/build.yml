@@ -25,7 +25,7 @@ jobs:
           gradle-version: "8.11.1"
 
       - name: Birim testleri ve derleme
-        run: gradle --no-daemon testDebugUnitTest assembleDebug
+        run: gradle --no-daemon :core:test testDebugUnitTest assembleDebug
 
       - name: APK'ları adlandır
         run: |

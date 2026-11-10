@@ -44,6 +44,8 @@ android {
 }
 
 dependencies {
+    implementation(project(":core"))
+
     // Cihazda çalışan yazı tanıma (Latin alfabesi, model APK'nın içinde)
     implementation("com.google.mlkit:text-recognition:16.0.1")
     // Cihazda çalışan çeviri (İngilizce→Türkçe modeli ilk kullanımda indirilir)

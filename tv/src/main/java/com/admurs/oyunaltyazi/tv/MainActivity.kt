@@ -47,8 +47,8 @@ class MainActivity : Activity() {
         column.addView(button("A) Erişilebilirlik modu: ayarı aç") { openAccessibilitySettings() })
         column.addView(button("B) Alternatif mod: üstte gösterme izni ile başlat") { startAlternativeMode() })
 
-        column.addView(text("Telefonsuz Xbox denemesi:", 18f, Color.LTGRAY).apply { setPadding(0, pad / 2, 0, 0) })
-        column.addView(button("C) Xbox bağlantı denemesini başlat") {
+        column.addView(text("Telefonsuz Xbox (önce B modunu aç):", 18f, Color.LTGRAY).apply { setPadding(0, pad / 2, 0, 0) })
+        column.addView(button("C) Xbox ile Türkçe altyazı") {
             startActivity(Intent(this, XboxProbeActivity::class.java))
         })
 

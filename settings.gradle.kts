@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "oyun-altyazi"
-include(":phone", ":tv")
+include(":core", ":phone", ":tv")

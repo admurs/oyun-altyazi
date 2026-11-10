@@ -24,6 +24,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.TextView
+import com.admurs.oyunaltyazi.core.Region
 import org.json.JSONObject
 import org.json.JSONTokener
 
@@ -54,6 +55,11 @@ class XboxProbeActivity : Activity() {
     private var backgroundChanged = 0
     private var lastResult = ""
     private var windowChanged = 0
+
+    // Telefonsuz altyazı hattı (OCR + çeviri) ve altyazı katmanı
+    private lateinit var pipeline: SubtitlePipeline
+    private var ownOverlay: SubtitleOverlay? = null
+    private val region = Region.DEFAULT
 
     // Arka plandayken sayfanın taşındığı küçük köşe penceresi
     private var floating = false
@@ -109,7 +115,9 @@ class XboxProbeActivity : Activity() {
             cy = root.height / 2f
             placeCursor()
         }
-        DiagLog.add(this, "Xbox denemesi açıldı")
+        DiagLog.add(this, "Xbox ekranı açıldı")
+        pipeline = SubtitlePipeline(applicationContext).also { it.prepare() }
+        ensureOverlay()
         web.loadUrl(START_URL)
         handler.post(probeLoop)
     }
@@ -147,7 +155,7 @@ class XboxProbeActivity : Activity() {
             DiagLog.add(this, "Köşe penceresi açılamadı: 'üstte gösterme' izni yok (önce B modunu aç)")
             return
         }
-        val width = (resources.displayMetrics.widthPixels * 0.2f).toInt()
+        val width = (resources.displayMetrics.widthPixels * 0.12f).toInt()
         val params = WindowManager.LayoutParams(
             width, width * 9 / 16,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
@@ -179,8 +187,22 @@ class XboxProbeActivity : Activity() {
         root.addView(web, 0, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
     }
 
+    /** Altyazı katmanı: B modu açıksa onunkini kullan, değilse kendi katmanını aç. */
+    private fun ensureOverlay() {
+        if (SubtitleOverlay.active != null) return
+        if (!Settings.canDrawOverlays(this)) {
+            DiagLog.add(this, "Altyazı katmanı açılamadı: 'üstte gösterme' izni yok (önce B modunu aç)")
+            return
+        }
+        ownOverlay = SubtitleOverlay(applicationContext, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
+            .takeIf { it.attach() }
+    }
+
     override fun onDestroy() {
         handler.removeCallbacks(probeLoop)
+        pipeline.close()
+        ownOverlay?.detach()
+        ownOverlay = null
         if (floating) {
             try {
                 overlayManager.removeView(web)
@@ -188,7 +210,7 @@ class XboxProbeActivity : Activity() {
             }
             floating = false
         }
-        DiagLog.add(this, "Xbox denemesi kapandı")
+        DiagLog.add(this, "Xbox ekranı kapandı")
         web.destroy()
         super.onDestroy()
     }
@@ -197,8 +219,8 @@ class XboxProbeActivity : Activity() {
 
     private val probeLoop = object : Runnable {
         override fun run() {
-            web.evaluateJavascript(PROBE_JS) { raw -> onProbe(raw) }
-            handler.postDelayed(this, 1000)
+            web.evaluateJavascript(captureScript(region)) { raw -> onProbe(raw) }
+            handler.postDelayed(this, FRAME_INTERVAL_MS)
         }
     }
 
@@ -216,6 +238,9 @@ class XboxProbeActivity : Activity() {
             changed = lastSignature != null && signature != lastSignature
             lastSignature = signature
             if (changed) changedFrames++
+            // Altyazı bölgesi değiştiyse yeni görüntüyü OCR'a ver, değişmediyse son okumayı tekrar kullan
+            val image = json.optString("img")
+            if (json.optBoolean("same") || image.isBlank()) pipeline.submitUnchanged() else pipeline.submit(image)
         } else {
             videoInfo = json.optString("err").ifBlank { "video yok (sayfadaki video öğesi: ${json.optInt("videos")})" }
                 .let { if (it.startsWith("video yok")) it else "OKUMA HATASI: $it" }
@@ -226,15 +251,21 @@ class XboxProbeActivity : Activity() {
                 backgroundChanged++
                 windowChanged++
             }
-            if (backgroundSamples % 10 == 0) {
+            if (backgroundSamples % SAMPLES_PER_LOG == 0) {
+                val seconds = (SystemClock.elapsedRealtime() - backgroundStart) / 1000
                 val verdict = if (windowChanged >= 5) "AKIYOR ✔" else "DONMUŞ ✘"
-                DiagLog.add(this, "Arka planda $backgroundSamples sn — son 10 sn: $windowChanged değişim → $verdict")
+                DiagLog.add(this, "Arka planda $seconds sn — son 10 sn: $windowChanged değişim → $verdict")
                 windowChanged = 0
             }
         }
         status.text = buildString {
             append(videoInfo).append(" | değişen kare: ").append(changedFrames).append('\n')
-            append(if (changedFrames >= 5) "1. TEST (görüntü okunuyor): BAŞARILI ✔" else "1. TEST: oyun görüntüsü bekleniyor…").append('\n')
+            append(if (changedFrames >= 5) "Oyun görüntüsü okunuyor ✔" else "Oyun görüntüsü bekleniyor…")
+            append(" | ").append(pipeline.modelStatus).append(" | işlenen: ").append(pipeline.processed).append('\n')
+            append("Okunan: ").append(pipeline.lastOcr.replace('\n', ' ').take(90).ifBlank { "-" }).append('\n')
+            append("Çeviri: ").append(pipeline.lastTranslation.take(90).ifBlank { "-" }).append('\n')
+            pipeline.lastError?.let { append("Hata: ").append(it).append('\n') }
+            if (SubtitleOverlay.active == null) append("UYARI: altyazı katmanı kapalı — önce B modunu aç\n")
             if (lastResult.isNotEmpty()) append(lastResult).append('\n')
             append("Yön: imleç · Tamam: tıkla · Geri: geri · Hızlı ileri/geri sar: sayfayı kaydır")
         }
@@ -306,17 +337,32 @@ class XboxProbeActivity : Activity() {
         private const val DESKTOP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0"
 
-        /** Sayfadaki en büyük oynayan videodan 64x36'lık örnek alır; parlaklık ve imza döndürür. */
-        private const val PROBE_JS = """
-(function(){try{
+        private const val FRAME_INTERVAL_MS = 500L
+        private const val SAMPLES_PER_LOG = 20
+
+        /**
+         * Sayfadaki en büyük videodan: tüm karenin küçük imzası (akış donmuş mu?) ve
+         * altyazı bölgesinin JPEG'i (bölge önceki kareyle aynıysa gönderilmez).
+         */
+        private fun captureScript(r: Region): String {
+            val g = r.sanitized()
+            return """
+(function(t,b,l,r){try{
 var vs=[].slice.call(document.querySelectorAll('video'));var v=null;
 vs.forEach(function(x){if(x.videoWidth>0&&(!v||x.videoWidth*x.videoHeight>v.videoWidth*v.videoHeight))v=x;});
 if(!v)return JSON.stringify({ok:false,videos:vs.length});
-var c=window.__oaProbe||(window.__oaProbe=document.createElement('canvas'));c.width=64;c.height=36;
-var g=c.getContext('2d');g.drawImage(v,0,0,64,36);var d=g.getImageData(0,0,64,36).data;
-var h=0;for(var i=0;i<d.length;i+=8){h=(h*31+d[i]+d[i+1]*7+d[i+2]*13)|0;}
-return JSON.stringify({ok:true,w:v.videoWidth,h:v.videoHeight,paused:v.paused,sig:h});
-}catch(e){return JSON.stringify({ok:false,err:String(e)});}})()
+var W=v.videoWidth,H=v.videoHeight;
+var p=window.__oaProbe||(window.__oaProbe=document.createElement('canvas'));p.width=64;p.height=36;
+var pg=p.getContext('2d');pg.drawImage(v,0,0,64,36);var pd=pg.getImageData(0,0,64,36).data;
+var sig=0;for(var i=0;i<pd.length;i+=8){sig=(sig*31+pd[i]+pd[i+1]*7+pd[i+2]*13)|0;}
+var sx=Math.round(W*l/100),sy=Math.round(H*t/100),sw=Math.max(32,Math.round(W*(r-l)/100)),sh=Math.max(32,Math.round(H*(b-t)/100));
+var c=window.__oaCrop||(window.__oaCrop=document.createElement('canvas'));c.width=sw;c.height=sh;
+var g=c.getContext('2d');g.drawImage(v,sx,sy,sw,sh,0,0,sw,sh);var d=g.getImageData(0,0,sw,sh).data;
+var cs=0;for(var j=0;j<d.length;j+=64){cs=(cs*31+d[j]+d[j+1]*7+d[j+2]*13)|0;}
+var same=(window.__oaCropSig===cs);window.__oaCropSig=cs;
+return JSON.stringify({ok:true,w:W,h:H,paused:v.paused,sig:sig,same:same,img:same?'':c.toDataURL('image/jpeg',0.85).split(',')[1]});
+}catch(e){return JSON.stringify({ok:false,err:String(e)});}})(${g.top},${g.bottom},${g.left},${g.right})
 """
+        }
     }
 }
