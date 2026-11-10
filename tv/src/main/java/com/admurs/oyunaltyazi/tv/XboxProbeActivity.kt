@@ -59,7 +59,14 @@ class XboxProbeActivity : Activity() {
     // Telefonsuz altyazı hattı (OCR + çeviri) ve altyazı katmanı
     private lateinit var pipeline: SubtitlePipeline
     private var ownOverlay: SubtitleOverlay? = null
-    private val region = Region.DEFAULT
+    private var region = Region.DEFAULT
+    private var showFrame = true
+    private lateinit var regionLabel: TextView
+
+    // Akış ölçümü: tarayıcının çözdüğü toplam kare sayısı
+    private var decodedFrames = -1L
+    private var backgroundStartFrames = -1L
+    private var windowStartFrames = -1L
 
     // Arka plandayken sayfanın taşındığı küçük köşe penceresi
     private var floating = false
@@ -107,6 +114,10 @@ class XboxProbeActivity : Activity() {
                 setStroke(3, Color.WHITE)
             }
         }
+        region = TvSettings.region(this)
+        root.addView(regionPanel(), FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.START,
+        ))
         root.addView(cursor, FrameLayout.LayoutParams(size, size))
         setContentView(root)
 
@@ -127,10 +138,12 @@ class XboxProbeActivity : Activity() {
         visible = true
         moveBackFromCorner()
         if (backgroundStart > 0) {
-            val seconds = (SystemClock.elapsedRealtime() - backgroundStart) / 1000
-            val ok = backgroundSamples >= 5 && backgroundChanged * 2 >= backgroundSamples
-            lastResult = "ARKA PLAN TESTİ: ${if (ok) "BAŞARILI ✔" else "BAŞARISIZ ✘"} — $seconds sn arka planda, " +
-                "$backgroundSamples ölçümün $backgroundChanged tanesinde görüntü değişti"
+            val seconds = maxOf(1L, (SystemClock.elapsedRealtime() - backgroundStart) / 1000)
+            val frames = if (backgroundStartFrames >= 0 && decodedFrames >= 0) decodedFrames - backgroundStartFrames else -1
+            val fps = frames / seconds
+            val ok = frames >= 0 && fps >= 5
+            lastResult = "ARKA PLAN: ${if (ok) "AKIŞ SÜRDÜ ✔" else "AKIŞ DURDU ✘"} — $seconds sn, " +
+                (if (frames >= 0) "$frames kare çözüldü (≈$fps kare/sn)" else "kare sayısı okunamadı")
             DiagLog.add(this, lastResult)
             backgroundStart = 0
         }
@@ -143,6 +156,8 @@ class XboxProbeActivity : Activity() {
         backgroundStart = SystemClock.elapsedRealtime()
         backgroundSamples = 0
         backgroundChanged = 0
+        backgroundStartFrames = decodedFrames
+        windowStartFrames = decodedFrames
         DiagLog.add(this, "Xbox denemesi arka plana geçti ($videoInfo)")
         windowChanged = 0
         moveToCorner()
@@ -187,6 +202,54 @@ class XboxProbeActivity : Activity() {
         root.addView(web, 0, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
     }
 
+    /** İmleçle tıklanan bölge ayar düğmeleri; kırmızı çerçeve oyun görüntüsünün üstünde gösterilir. */
+    private fun regionPanel(): View {
+        val panel = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            setBackgroundColor(Color.argb(200, 0, 0, 0))
+            setPadding(8, 6, 8, 6)
+        }
+        regionLabel = TextView(this).apply {
+            setTextColor(Color.WHITE)
+            textSize = 13f
+            setPadding(10, 0, 14, 0)
+        }
+        panel.addView(regionLabel)
+        fun add(label: String, change: (Region) -> Region) {
+            panel.addView(android.widget.Button(this).apply {
+                text = label
+                textSize = 12f
+                setAllCaps(false)
+                isFocusable = false
+                setOnClickListener {
+                    region = change(region).sanitized()
+                    TvSettings.setRegion(this@XboxProbeActivity, region)
+                    updateRegionLabel()
+                }
+            })
+        }
+        add("▲ Yukarı") { it.copy(top = it.top - 2, bottom = it.bottom - 2) }
+        add("▼ Aşağı") { it.copy(top = it.top + 2, bottom = it.bottom + 2) }
+        add("Uzat") { it.copy(top = it.top - 2) }
+        add("Kısalt") { it.copy(top = it.top + 2) }
+        add("Genişlet") { it.copy(left = it.left - 2, right = it.right + 2) }
+        add("Daralt") { it.copy(left = it.left + 2, right = it.right - 2) }
+        add("Sıfırla") { Region.DEFAULT }
+        panel.addView(android.widget.Button(this).apply {
+            text = "Çerçeve"
+            textSize = 12f
+            setAllCaps(false)
+            isFocusable = false
+            setOnClickListener { showFrame = !showFrame }
+        })
+        updateRegionLabel()
+        return panel
+    }
+
+    private fun updateRegionLabel() {
+        regionLabel.text = "Altyazı bölgesi: üst %${region.top}–alt %${region.bottom}\nsol %${region.left}–sağ %${region.right}"
+    }
+
     /** Altyazı katmanı: B modu açıksa onunkini kullan, değilse kendi katmanını aç. */
     private fun ensureOverlay() {
         if (SubtitleOverlay.active != null) return
@@ -219,7 +282,7 @@ class XboxProbeActivity : Activity() {
 
     private val probeLoop = object : Runnable {
         override fun run() {
-            web.evaluateJavascript(captureScript(region)) { raw -> onProbe(raw) }
+            web.evaluateJavascript(captureScript(region, showFrame && visible)) { raw -> onProbe(raw) }
             handler.postDelayed(this, FRAME_INTERVAL_MS)
         }
     }
@@ -234,6 +297,7 @@ class XboxProbeActivity : Activity() {
         var changed = false
         if (json.optBoolean("ok")) {
             videoInfo = "video ${json.optInt("w")}x${json.optInt("h")}" + if (json.optBoolean("paused")) " (duraklatılmış)" else ""
+            decodedFrames = json.optLong("frames", -1)
             val signature = json.optLong("sig")
             changed = lastSignature != null && signature != lastSignature
             lastSignature = signature
@@ -253,8 +317,14 @@ class XboxProbeActivity : Activity() {
             }
             if (backgroundSamples % SAMPLES_PER_LOG == 0) {
                 val seconds = (SystemClock.elapsedRealtime() - backgroundStart) / 1000
-                val verdict = if (windowChanged >= 5) "AKIYOR ✔" else "DONMUŞ ✘"
-                DiagLog.add(this, "Arka planda $seconds sn — son 10 sn: $windowChanged değişim → $verdict")
+                val frames = if (windowStartFrames >= 0 && decodedFrames >= 0) decodedFrames - windowStartFrames else -1
+                val verdict = when {
+                    frames < 0 -> "kare sayısı okunamadı"
+                    frames >= 50 -> "AKIYOR ✔"
+                    else -> "DONMUŞ ✘"
+                }
+                DiagLog.add(this, "Arka planda $seconds sn — son 10 sn: $frames kare → $verdict")
+                windowStartFrames = decodedFrames
                 windowChanged = 0
             }
         }
@@ -344,7 +414,7 @@ class XboxProbeActivity : Activity() {
          * Sayfadaki en büyük videodan: tüm karenin küçük imzası (akış donmuş mu?) ve
          * altyazı bölgesinin JPEG'i (bölge önceki kareyle aynıysa gönderilmez).
          */
-        private fun captureScript(r: Region): String {
+        private fun captureScript(r: Region, frame: Boolean): String {
             val g = r.sanitized()
             return """
 (function(t,b,l,r){try{
@@ -352,6 +422,14 @@ var vs=[].slice.call(document.querySelectorAll('video'));var v=null;
 vs.forEach(function(x){if(x.videoWidth>0&&(!v||x.videoWidth*x.videoHeight>v.videoWidth*v.videoHeight))v=x;});
 if(!v)return JSON.stringify({ok:false,videos:vs.length});
 var W=v.videoWidth,H=v.videoHeight;
+var q=v.getVideoPlaybackQuality?v.getVideoPlaybackQuality():null;var frames=q?q.totalVideoFrames:(v.webkitDecodedFrameCount||-1);
+var fr=document.getElementById('oaFrame');
+if(${if (frame) "true" else "false"}){var rc=v.getBoundingClientRect();var k=Math.min(rc.width/W,rc.height/H);var cw=W*k,ch=H*k;
+var ox=rc.left+(rc.width-cw)/2,oy=rc.top+(rc.height-ch)/2;
+if(!fr){fr=document.createElement('div');fr.id='oaFrame';document.body.appendChild(fr);}
+fr.style.cssText='position:fixed;pointer-events:none;z-index:2147483647;border:3px solid red;box-sizing:border-box;'+
+'left:'+(ox+cw*l/100)+'px;top:'+(oy+ch*t/100)+'px;width:'+(cw*(r-l)/100)+'px;height:'+(ch*(b-t)/100)+'px';}
+else if(fr){fr.remove();}
 var p=window.__oaProbe||(window.__oaProbe=document.createElement('canvas'));p.width=64;p.height=36;
 var pg=p.getContext('2d');pg.drawImage(v,0,0,64,36);var pd=pg.getImageData(0,0,64,36).data;
 var sig=0;for(var i=0;i<pd.length;i+=8){sig=(sig*31+pd[i]+pd[i+1]*7+pd[i+2]*13)|0;}
@@ -360,7 +438,7 @@ var c=window.__oaCrop||(window.__oaCrop=document.createElement('canvas'));c.widt
 var g=c.getContext('2d');g.drawImage(v,sx,sy,sw,sh,0,0,sw,sh);var d=g.getImageData(0,0,sw,sh).data;
 var cs=0;for(var j=0;j<d.length;j+=64){cs=(cs*31+d[j]+d[j+1]*7+d[j+2]*13)|0;}
 var same=(window.__oaCropSig===cs);window.__oaCropSig=cs;
-return JSON.stringify({ok:true,w:W,h:H,paused:v.paused,sig:sig,same:same,img:same?'':c.toDataURL('image/jpeg',0.85).split(',')[1]});
+return JSON.stringify({ok:true,w:W,h:H,paused:v.paused,frames:frames,sig:sig,same:same,img:same?'':c.toDataURL('image/jpeg',0.85).split(',')[1]});
 }catch(e){return JSON.stringify({ok:false,err:String(e)});}})(${g.top},${g.bottom},${g.left},${g.right})
 """
         }
