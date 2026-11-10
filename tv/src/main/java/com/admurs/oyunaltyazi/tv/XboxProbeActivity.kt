@@ -8,6 +8,9 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.provider.Settings
+import android.graphics.PixelFormat
+import android.view.WindowManager
 import android.view.Gravity
 import android.view.InputDevice
 import android.view.KeyEvent
@@ -50,6 +53,11 @@ class XboxProbeActivity : Activity() {
     private var backgroundSamples = 0
     private var backgroundChanged = 0
     private var lastResult = ""
+    private var windowChanged = 0
+
+    // Arka plandayken sayfanın taşındığı küçük köşe penceresi
+    private var floating = false
+    private val windowManager by lazy { applicationContext.getSystemService(WINDOW_SERVICE) as WindowManager }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -109,6 +117,7 @@ class XboxProbeActivity : Activity() {
     override fun onResume() {
         super.onResume()
         visible = true
+        moveBackFromCorner()
         if (backgroundStart > 0) {
             val seconds = (SystemClock.elapsedRealtime() - backgroundStart) / 1000
             val ok = backgroundSamples >= 5 && backgroundChanged * 2 >= backgroundSamples
@@ -127,10 +136,58 @@ class XboxProbeActivity : Activity() {
         backgroundSamples = 0
         backgroundChanged = 0
         DiagLog.add(this, "Xbox denemesi arka plana geçti ($videoInfo)")
+        windowChanged = 0
+        moveToCorner()
+    }
+
+    /** Uygulama arka plana düşünce sayfayı köşede küçük, hep görünen bir pencereye taşır. */
+    private fun moveToCorner() {
+        if (floating) return
+        if (!Settings.canDrawOverlays(this)) {
+            DiagLog.add(this, "Köşe penceresi açılamadı: 'üstte gösterme' izni yok (önce B modunu aç)")
+            return
+        }
+        val width = (resources.displayMetrics.widthPixels * 0.2f).toInt()
+        val params = WindowManager.LayoutParams(
+            width, width * 9 / 16,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = Gravity.TOP or Gravity.END
+            x = 24
+            y = 24
+        }
+        root.removeView(web)
+        try {
+            windowManager.addView(web, params)
+            floating = true
+            DiagLog.add(this, "Görüntü köşe penceresine taşındı")
+        } catch (e: Exception) {
+            DiagLog.add(this, "Köşe penceresi açılamadı: ${e.javaClass.simpleName}: ${e.message}")
+            root.addView(web, 0, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        }
+    }
+
+    private fun moveBackFromCorner() {
+        if (!floating) return
+        try {
+            windowManager.removeView(web)
+        } catch (_: Exception) {
+        }
+        floating = false
+        root.addView(web, 0, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
     }
 
     override fun onDestroy() {
         handler.removeCallbacks(probeLoop)
+        if (floating) {
+            try {
+                windowManager.removeView(web)
+            } catch (_: Exception) {
+            }
+            floating = false
+        }
         DiagLog.add(this, "Xbox denemesi kapandı")
         web.destroy()
         super.onDestroy()
@@ -165,9 +222,14 @@ class XboxProbeActivity : Activity() {
         }
         if (!visible) {
             backgroundSamples++
-            if (changed) backgroundChanged++
+            if (changed) {
+                backgroundChanged++
+                windowChanged++
+            }
             if (backgroundSamples % 10 == 0) {
-                DiagLog.add(this, "Arka planda $backgroundSamples sn: $backgroundChanged ölçümde görüntü değişti")
+                val verdict = if (windowChanged >= 5) "AKIYOR ✔" else "DONMUŞ ✘"
+                DiagLog.add(this, "Arka planda $backgroundSamples sn — son 10 sn: $windowChanged değişim → $verdict")
+                windowChanged = 0
             }
         }
         status.text = buildString {
