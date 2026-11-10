@@ -5,7 +5,10 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
@@ -21,6 +24,8 @@ import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
+import com.admurs.oyunaltyazi.core.Region
+import com.admurs.oyunaltyazi.core.RegionMath
 import kotlin.concurrent.thread
 
 /**
@@ -59,6 +64,7 @@ class MainActivity : Activity() {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIFICATIONS)
         }
         setContentView(buildUi())
+        updateRegionInfo()
     }
 
     override fun onResume() {
@@ -115,11 +121,18 @@ class MainActivity : Activity() {
         column.addView(button("Modeli şimdi indir") { downloadModel() })
 
         column.addView(title("3. Altyazı bölgesi (ekranın yüzdesi)"))
+        column.addView(info(
+            "Yakalama çalışırken Xbox'ta altyazılı bir sahnedeyken buraya dön. Önizlemede oyun görüntüsü " +
+                "ve kırmızı çerçeve görünür; çerçeveyi altyazıyı kapsayacak şekilde kaydırıcılarla ayarla.",
+        ))
         val region = AppSettings.region(this)
         column.addView(slider("Üst kenar", "top", region.top))
         column.addView(slider("Alt kenar", "bottom", region.bottom))
         column.addView(slider("Sol kenar", "left", region.left))
         column.addView(slider("Sağ kenar", "right", region.right))
+        regionInfo = info("")
+        column.addView(regionInfo)
+        column.addView(button("Varsayılan bölgeye dön") { resetRegion() })
         column.addView(fontSlider())
 
         column.addView(title("4. Yakalama"))
@@ -182,16 +195,60 @@ class MainActivity : Activity() {
                 override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
                     caption.text = "$label: %$progress"
                     AppSettings.setRegionValue(this@MainActivity, key, progress)
+                    updateRegionInfo()
+                    if (fromUser) drawPreview()
                 }
                 override fun onStartTrackingTouch(seekBar: SeekBar) = Unit
                 override fun onStopTrackingTouch(seekBar: SeekBar) = Unit
             })
         }
+        sliders[key] = bar
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(caption)
             addView(bar)
         }
+    }
+
+    private val sliders = mutableMapOf<String, SeekBar>()
+    private lateinit var regionInfo: TextView
+
+    private fun updateRegionInfo() {
+        if (!::regionInfo.isInitialized) return
+        val raw = AppSettings.region(this)
+        val used = raw.sanitized()
+        regionInfo.text = "Kullanılan bölge: üst %${used.top} – alt %${used.bottom}, sol %${used.left} – sağ %${used.right}" +
+            if (used != raw) "  (kenarlar çakıştığı için düzeltildi)" else ""
+    }
+
+    private fun resetRegion() {
+        AppSettings.resetRegion(this)
+        val d = Region.DEFAULT
+        sliders["top"]?.progress = d.top
+        sliders["bottom"]?.progress = d.bottom
+        sliders["left"]?.progress = d.left
+        sliders["right"]?.progress = d.right
+        updateRegionInfo()
+        drawPreview()
+    }
+
+    /** Son tam kareyi kırmızı bölge çerçevesiyle gösterir. */
+    private fun drawPreview() {
+        val frame = CaptureService.lastFrame ?: return
+        val fullWidth = CaptureService.frameWidth
+        val fullHeight = CaptureService.frameHeight
+        if (fullWidth <= 0 || fullHeight <= 0) return
+        val copy = frame.copy(Bitmap.Config.ARGB_8888, true)
+        val rect = RegionMath.cropRect(fullWidth, fullHeight, AppSettings.region(this))
+        val sx = copy.width.toFloat() / fullWidth
+        val sy = copy.height.toFloat() / fullHeight
+        val paint = Paint().apply {
+            color = Color.RED
+            style = Paint.Style.STROKE
+            strokeWidth = 3f
+        }
+        Canvas(copy).drawRect(rect.left * sx, rect.top * sy, rect.right * sx, rect.bottom * sy, paint)
+        preview.setImageBitmap(copy)
     }
 
     private fun fontSlider(): LinearLayout {
@@ -342,12 +399,11 @@ class MainActivity : Activity() {
     }
 
     private fun refreshPreview() {
-        val crop = CaptureService.lastCrop
-        if (crop == null) {
+        if (CaptureService.lastFrame == null) {
             toast("Henüz kare yok. Yakalamayı başlat, Xbox'ta oyunu aç ve geri dön.")
             return
         }
-        preview.setImageBitmap(crop)
+        drawPreview()
         ocrText.text = "Okunan: ${CaptureService.lastOcr.ifBlank { "(yazı yok)" }}\n" +
             "Çeviri: ${CaptureService.lastTranslation.ifBlank { "-" }}"
     }

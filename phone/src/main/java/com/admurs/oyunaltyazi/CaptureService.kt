@@ -25,6 +25,8 @@ import android.os.IBinder
 import android.os.Looper
 import android.util.DisplayMetrics
 import android.view.WindowManager
+import android.graphics.Matrix
+import com.admurs.oyunaltyazi.core.RegionMath
 import com.admurs.oyunaltyazi.core.SubtitleEvent
 import com.admurs.oyunaltyazi.core.SubtitleStabilizer
 import com.google.android.gms.tasks.Tasks
@@ -152,15 +154,18 @@ class CaptureService : Service() {
             val plane = image.planes[0]
             val pixelStride = plane.pixelStride
             val rowPadding = plane.rowStride - pixelStride * image.width
-            val padded = Bitmap.createBitmap(image.width + rowPadding / pixelStride, image.height, Bitmap.Config.ARGB_8888)
+            val width = image.width
+            val height = image.height
+            val padded = Bitmap.createBitmap(width + rowPadding / pixelStride, height, Bitmap.Config.ARGB_8888)
             padded.copyPixelsFromBuffer(plane.buffer)
-            val r = AppSettings.region(this)
-            val left = (image.width * r.left / 100).coerceIn(0, image.width - 1)
-            val right = (image.width * r.right / 100).coerceIn(left + 1, image.width)
-            val top = (image.height * r.top / 100).coerceIn(0, image.height - 1)
-            val bottom = (image.height * r.bottom / 100).coerceIn(top + 1, image.height)
-            crop = Bitmap.createBitmap(padded, left, top, right - left, bottom - top)
-            if (crop !== padded) padded.recycle()
+            val rect = RegionMath.cropRect(width, height, AppSettings.region(this))
+            crop = Bitmap.createBitmap(padded, rect.left, rect.top, rect.width, rect.height)
+            // Bölge ayarı için küçültülmüş tam kare (önizlemede kırmızı çerçeveyle gösterilir)
+            val scale = PREVIEW_WIDTH.toFloat() / width
+            lastFrame = Bitmap.createBitmap(padded, 0, 0, width, height, Matrix().apply { setScale(scale, scale) }, true)
+            frameWidth = width
+            frameHeight = height
+            if (crop !== padded && lastFrame !== padded) padded.recycle()
         } finally {
             image.close()
         }
@@ -169,6 +174,7 @@ class CaptureService : Service() {
         val text = Tasks.await(recognizer.process(InputImage.fromBitmap(crop, 0)), 5, TimeUnit.SECONDS).text
         lastOcr = text
         frameCount++
+        status = "Çalışıyor"
 
         when (val event = stabilizer.push(text)) {
             is SubtitleEvent.Show -> {
@@ -261,7 +267,12 @@ class CaptureService : Service() {
 
         @Volatile var running = false
         @Volatile var status = "Durdu"
+        private const val PREVIEW_WIDTH = 640
+
         @Volatile var lastCrop: Bitmap? = null
+        @Volatile var lastFrame: Bitmap? = null
+        @Volatile var frameWidth = 0
+        @Volatile var frameHeight = 0
         @Volatile var lastOcr = ""
         @Volatile var lastTranslation = ""
         @Volatile var frameCount = 0
