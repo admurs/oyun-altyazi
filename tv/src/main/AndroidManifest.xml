@@ -30,6 +30,13 @@
             </intent-filter>
         </activity>
 
+        <!-- DENEME: TV içinde Xbox tarayıcı Remote Play -->
+        <activity
+            android:name=".XboxProbeActivity"
+            android:exported="false"
+            android:hardwareAccelerated="true"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|uiMode|smallestScreenSize" />
+
         <!-- Erişilebilirlik modu: altyazıyı HDMI girişi dahil her ekranın üstüne çizer -->
         <service
             android:name=".OverlayService"
