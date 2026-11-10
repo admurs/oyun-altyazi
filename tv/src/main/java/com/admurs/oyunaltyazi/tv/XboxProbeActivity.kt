@@ -57,7 +57,7 @@ class XboxProbeActivity : Activity() {
 
     // Arka plandayken sayfanın taşındığı küçük köşe penceresi
     private var floating = false
-    private val windowManager by lazy { applicationContext.getSystemService(WINDOW_SERVICE) as WindowManager }
+    private val overlayManager by lazy { applicationContext.getSystemService(WINDOW_SERVICE) as WindowManager }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -160,7 +160,7 @@ class XboxProbeActivity : Activity() {
         }
         root.removeView(web)
         try {
-            windowManager.addView(web, params)
+            overlayManager.addView(web, params)
             floating = true
             DiagLog.add(this, "Görüntü köşe penceresine taşındı")
         } catch (e: Exception) {
@@ -172,7 +172,7 @@ class XboxProbeActivity : Activity() {
     private fun moveBackFromCorner() {
         if (!floating) return
         try {
-            windowManager.removeView(web)
+            overlayManager.removeView(web)
         } catch (_: Exception) {
         }
         floating = false
@@ -183,7 +183,7 @@ class XboxProbeActivity : Activity() {
         handler.removeCallbacks(probeLoop)
         if (floating) {
             try {
-                windowManager.removeView(web)
+                overlayManager.removeView(web)
             } catch (_: Exception) {
             }
             floating = false
