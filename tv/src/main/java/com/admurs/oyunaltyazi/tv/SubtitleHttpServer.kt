@@ -18,6 +18,7 @@ data class HttpRequest(val method: String, val path: String, val body: String)
  */
 class SubtitleHttpServer(
     private val port: Int,
+    private val onError: (String) -> Unit = {},
     private val onMessage: (String) -> Boolean,
 ) {
     @Volatile private var serverSocket: ServerSocket? = null
@@ -30,7 +31,9 @@ class SubtitleHttpServer(
                     bind(InetSocketAddress(port))
                 }
             } catch (e: IOException) {
-                lastError = "Port $port açılamadı: ${e.message}"
+                val message = "Port $port açılamadı: ${e.message}"
+                lastError = message
+                onError(message)
                 return@thread
             }
             serverSocket = server

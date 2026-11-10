@@ -1,8 +1,10 @@
 package com.admurs.oyunaltyazi.tv
 
 import android.app.Activity
+import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -17,10 +19,11 @@ import android.widget.Toast
 import java.net.Inet4Address
 import java.net.NetworkInterface
 
-/** Kurulum ve test ekranı: servis durumu, TV'nin adresi, katman testi. */
+/** Kurulum, test ve tanılama ekranı. */
 class MainActivity : Activity() {
 
     private lateinit var status: TextView
+    private lateinit var diag: TextView
     private val handler = Handler(Looper.getMainLooper())
     private val refresher = object : Runnable {
         override fun run() {
@@ -31,40 +34,50 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val pad = (resources.displayMetrics.density * 32).toInt()
+        val pad = (resources.displayMetrics.density * 28).toInt()
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(pad, pad, pad, pad)
         }
-        column.addView(TextView(this).apply {
-            text = getString(R.string.app_name)
-            textSize = 32f
-            setTextColor(Color.WHITE)
-        })
-        status = TextView(this).apply {
-            textSize = 20f
-            setTextColor(Color.WHITE)
-            setPadding(0, pad / 2, 0, pad / 2)
-        }
+        column.addView(text(getString(R.string.app_name) + "  (sürüm ${versionName()})", 30f, Color.WHITE))
+        status = text("", 19f, Color.WHITE).apply { setPadding(0, pad / 3, 0, pad / 3) }
         column.addView(status)
-        column.addView(button("1) Erişilebilirlik ayarlarını aç") { openAccessibilitySettings() })
-        column.addView(button("2) Burada test altyazısı göster") {
+
+        column.addView(text("Altyazı katmanını aç (ikisinden biri yeterli):", 18f, Color.LTGRAY))
+        column.addView(button("A) Erişilebilirlik modu: ayarı aç") { openAccessibilitySettings() })
+        column.addView(button("B) Alternatif mod: üstte gösterme izni ile başlat") { startAlternativeMode() })
+
+        column.addView(text("Test:", 18f, Color.LTGRAY).apply { setPadding(0, pad / 2, 0, 0) })
+        column.addView(button("Burada test altyazısı göster") {
             showTest("Merhaba! Altyazı katmanı çalışıyor.", 5_000)
         })
-        column.addView(button("3) HDMI testi: 30 sn altyazı göster") {
-            showTest("HDMI testi: Bu yazıyı oyun görüntüsünün üstünde görüyorsan TV hazır.", 30_000)
-            Toast.makeText(this, "Şimdi Xbox'ın bağlı olduğu HDMI girişine geç.", Toast.LENGTH_LONG).show()
+        column.addView(button("HDMI testi: 30 sn altyazı göster") {
+            if (showTest("HDMI testi: Bu yazıyı oyunun üstünde görüyorsan TV hazır.", 30_000)) {
+                Toast.makeText(this, "Şimdi Xbox'ın bağlı olduğu HDMI girişine geç.", Toast.LENGTH_LONG).show()
+            }
         })
-        column.addView(TextView(this).apply {
-            textSize = 16f
-            setTextColor(Color.LTGRAY)
-            setPadding(0, pad / 2, 0, 0)
-            text = "Kurulum: 1'e bas, listeden \"${getString(R.string.service_label)}\" servisini aç. " +
-                "Sonra 3'e basıp HDMI girişine geç; yazı oyunun üstünde görünüyorsa tabletten bağlanabilirsin."
+
+        column.addView(text("Tanılama kaydı:", 18f, Color.LTGRAY).apply { setPadding(0, pad / 2, 0, 0) })
+        column.addView(button("Kaydı temizle") {
+            DiagLog.clear(this)
+            refresh()
         })
+        diag = text("", 14f, Color.LTGRAY)
+        column.addView(diag)
+
+        column.addView(text(
+            "Erişilebilirlik ayarı açılıp kendiliğinden kapanıyorsa B modunu dene. " +
+                "İkisi de olmazsa tabletten ADB ile şu komutlardan birini çalıştır:\n" +
+                "settings put secure enabled_accessibility_services $PACKAGE/$PACKAGE.OverlayService\n" +
+                "settings put secure accessibility_enabled 1\n" +
+                "veya: appops set $PACKAGE SYSTEM_ALERT_WINDOW allow",
+            14f, Color.GRAY,
+        ).apply { setPadding(0, pad / 2, 0, 0) })
+
         setContentView(ScrollView(this).apply {
             addView(column, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         })
+        DiagLog.add(this, "Uygulama açıldı")
     }
 
     override fun onResume() {
@@ -77,39 +90,89 @@ class MainActivity : Activity() {
         super.onPause()
     }
 
+    private fun text(value: String, size: Float, color: Int) = TextView(this).apply {
+        text = value
+        textSize = size
+        setTextColor(color)
+    }
+
     private fun button(label: String, onClick: () -> Unit) = Button(this).apply {
         text = label
-        textSize = 20f
+        textSize = 19f
+        setAllCaps(false)
         gravity = Gravity.START or Gravity.CENTER_VERTICAL
         setOnClickListener { onClick() }
     }
 
-    private fun showTest(text: String, durationMs: Int) {
-        val service = OverlayService.instance
-        if (service == null) {
-            Toast.makeText(this, "Önce erişilebilirlik servisini aç (adım 1).", Toast.LENGTH_LONG).show()
-            return
+    private fun versionName(): String = try {
+        packageManager.getPackageInfo(packageName, 0).versionName ?: "?"
+    } catch (_: Exception) {
+        "?"
+    }
+
+    private fun showTest(message: String, durationMs: Int): Boolean {
+        val overlay = SubtitleOverlay.active
+        if (overlay == null) {
+            Toast.makeText(this, "Önce A veya B ile katmanı aç.", Toast.LENGTH_LONG).show()
+            return false
         }
-        service.show(text, OverlayService.DEFAULT_FONT, durationMs)
+        overlay.show(message, SubtitleOverlay.DEFAULT_FONT, durationMs)
+        return true
     }
 
     private fun openAccessibilitySettings() {
+        // Önce doğrudan bizim servisin sayfasını dene (yeni Android sürümleri), olmazsa genel listeyi aç.
+        val details = Intent("android.settings.ACCESSIBILITY_DETAILS_SETTINGS")
+            .putExtra(Intent.EXTRA_COMPONENT_NAME, ComponentName(this, OverlayService::class.java).flattenToString())
+        val candidates = listOf(details, Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        for (intent in candidates) {
+            try {
+                startActivity(intent)
+                Toast.makeText(this, "\"${getString(R.string.service_label)}\"ı aç. TalkBack'i açma.", Toast.LENGTH_LONG).show()
+                return
+            } catch (_: Exception) {
+            }
+        }
+        Toast.makeText(this, "Ayarlar açılamadı: Ayarlar > Sistem > Erişilebilirlik", Toast.LENGTH_LONG).show()
+    }
+
+    private fun startAlternativeMode() {
+        if (OverlayService.instance != null) {
+            Toast.makeText(this, "Erişilebilirlik modu zaten açık; gerek yok.", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (Settings.canDrawOverlays(this)) {
+            startForegroundService(Intent(this, OverlayFgService::class.java))
+            Toast.makeText(this, "Alternatif mod başlatılıyor…", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
         try {
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-        } catch (e: Exception) {
-            Toast.makeText(this, "Ayarlar açılamadı. Ayarlar > Sistem > Erişilebilirlik yolunu dene.", Toast.LENGTH_LONG).show()
+            startActivity(intent)
+            Toast.makeText(this, "İzni ver, sonra geri dönüp B'ye tekrar bas.", Toast.LENGTH_LONG).show()
+        } catch (_: Exception) {
+            DiagLog.add(this, "Bu TV'de 'üstte göster' izin ekranı yok; ADB komutu gerekiyor")
+            Toast.makeText(this, "Bu TV izin ekranını göstermiyor. ADB komutu gerekecek (alttaki not).", Toast.LENGTH_LONG).show()
         }
     }
 
     private fun refresh() {
-        val enabled = OverlayService.instance != null
+        val mode = when {
+            OverlayService.instance != null -> "Erişilebilirlik modu AÇIK ✔"
+            OverlayFgService.running -> "Alternatif mod AÇIK ✔"
+            else -> "KAPALI ✘"
+        }
         val addresses = localAddresses()
         status.text = buildString {
-            append("Katman servisi: ").append(if (enabled) "AÇIK ✔" else "KAPALI ✘").append('\n')
-            append("TV adresi: ").append(if (addresses.isEmpty()) "ağ yok" else addresses.joinToString { "$it:${OverlayService.PORT}" }).append('\n')
-            append("Alınan mesaj: ").append(OverlayService.messageCount)
+            append("Katman: ").append(mode).append('\n')
+            append("Üstte gösterme izni: ").append(if (Settings.canDrawOverlays(this@MainActivity)) "var" else "yok").append('\n')
+            append("TV adresi: ")
+                .append(if (addresses.isEmpty()) "ağ yok" else addresses.joinToString { "$it:${SubtitleReceiver.PORT}" })
+                .append('\n')
+            append("Alınan mesaj: ").append(SubtitleReceiver.messageCount)
             SubtitleHttpServer.lastError?.let { append("\nHata: ").append(it) }
         }
+        diag.text = DiagLog.read(this).ifBlank { "(kayıt yok)" }
     }
 
     private fun localAddresses(): List<String> = try {
@@ -120,5 +183,9 @@ class MainActivity : Activity() {
             .mapNotNull { it.hostAddress }
     } catch (_: Exception) {
         emptyList()
+    }
+
+    companion object {
+        private const val PACKAGE = "com.admurs.oyunaltyazi.tv"
     }
 }

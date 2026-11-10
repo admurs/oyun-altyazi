@@ -4,11 +4,16 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <!-- Alternatif mod: diğer uygulamaların (HDMI girişi dahil) üzerinde göster -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
     <application
+        android:name=".OyunAltyaziTvApp"
         android:label="@string/app_name"
         android:icon="@drawable/ic_launcher"
         android:banner="@drawable/banner"
@@ -25,7 +30,7 @@
             </intent-filter>
         </activity>
 
-        <!-- Altyazıyı TV'nin HDMI girişi dahil her ekranın üstüne çizen erişilebilirlik servisi -->
+        <!-- Erişilebilirlik modu: altyazıyı HDMI girişi dahil her ekranın üstüne çizer -->
         <service
             android:name=".OverlayService"
             android:exported="true"
@@ -37,6 +42,16 @@
             <meta-data
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service" />
+        </service>
+
+        <!-- Alternatif mod: erişilebilirlik izni olmadan, "üstte göster" izniyle -->
+        <service
+            android:name=".OverlayFgService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Yerel ağdan gelen oyun altyazılarını ekran katmanında gösterir" />
         </service>
     </application>
 </manifest>

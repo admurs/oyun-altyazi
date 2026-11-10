@@ -41,9 +41,10 @@ TV ilk kez bilinmeyen kaynak isterse: *Ayarlar → Sistem/Gizlilik → Güvenlik
 
 | # | Adım | Beklenen sonuç |
 |---|------|----------------|
-| 1 | TV'de **Oyun Altyazı TV**'yi aç → "1) Erişilebilirlik ayarlarını aç" → listeden **Oyun Altyazı katmanı**'nı aç | Uygulama ekranında "Katman servisi: AÇIK ✔" ve TV adresi görünür |
-| 2 | "2) Burada test altyazısı göster" | Ekranın altında 5 sn beyaz yazı görünür |
-| 3 | "3) HDMI testi" → 30 sn içinde Xbox'ın HDMI girişine geç | Yazı oyun görüntüsünün üstünde görünür. **Görünmüyorsa burada dur ve bildir.** |
+| 1 | TV'de **Oyun Altyazı TV**'yi aç → **A) Erişilebilirlik modu** → listeden **Oyun Altyazı katmanı**'nı aç (**TalkBack'i açma**) | "Katman: Erişilebilirlik modu AÇIK ✔" |
+| 1b | A açılıp kendiliğinden kapanıyorsa: **B) Alternatif mod** → "Diğer uygulamaların üzerinde göster" iznini ver → geri dön, B'ye tekrar bas | "Katman: Alternatif mod AÇIK ✔" |
+| 2 | "Burada test altyazısı göster" | Ekranın altında 5 sn beyaz yazı görünür |
+| 3 | "HDMI testi" → 30 sn içinde Xbox'ın HDMI girişine geç | Yazı oyun görüntüsünün üstünde görünür. **Görünmüyorsa burada dur ve bildir.** |
 | 4 | Tablette **Oyun Altyazı** → "TV'yi ağda ara" → çıkan TV'ye dokun | "bağlantı TAMAM ✔". Bulunamazsa TV ekranındaki adresi elle yaz → "Adresi kaydet" |
 | 5 | "TV'ye gönder" | Yazdığın metin TV'de görünür, ~8 sn sonra kaybolur |
 | 6 | "Modeli şimdi indir" (Wi-Fi) | "Model hazır ✔" ve örnek Türkçe cümle |
@@ -52,7 +53,7 @@ TV ilk kez bilinmeyen kaynak isterse: *Ayarlar → Sistem/Gizlilik → Güvenlik
 | 9 | Xbox uygulamasına dönüp oynamaya devam et | Altyazılar ~1 sn içinde TV'de Türkçe görünür, altyazı kaybolunca TV'den de kalkar |
 | 10 | Bildirimdeki **Durdur** | Yakalama durur, TV'deki altyazı silinir |
 
-Sorun bildirirken: hangi adım, tablet ekranındaki durum satırı ve TV ekranındaki "Hata:" satırı.
+Sorun bildirirken: hangi adım, tablet ekranındaki durum satırı ve TV uygulamasındaki **Tanılama kaydı** (fotoğrafı yeterli).
 
 ## Geliştirme
 
